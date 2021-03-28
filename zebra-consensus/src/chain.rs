@@ -15,7 +15,7 @@ use tracing::instrument;
 
 use zebra_chain::{
     block::{self, Block},
-    parameters::{Network, NetworkUpgrade::Sapling},
+    parameters::{Network, NetworkUpgrade::Canopy},
 };
 
 use zebra_state as zs;
@@ -71,7 +71,13 @@ where
         Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send + 'static>>;
 
     fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        // Correctness:
+        // CORRECTNESS
+        //
+        // The current task must be scheduled for wakeup every time we return
+        // `Poll::Pending`.
+        //
+        // If either verifier is unready, this task is scheduled for wakeup when it becomes
+        // ready.
         //
         // We acquire checkpoint readiness before block readiness, to avoid an unlikely
         // hang during the checkpoint to block verifier transition. If the checkpoint and
@@ -135,8 +141,8 @@ where
     let max_checkpoint_height = if config.checkpoint_sync {
         list.max_height()
     } else {
-        list.min_height_in_range(Sapling.activation_height(network).unwrap()..)
-            .expect("hardcoded checkpoint list extends past sapling activation")
+        list.min_height_in_range(Canopy.activation_height(network).unwrap()..)
+            .expect("hardcoded checkpoint list extends past canopy activation")
     };
 
     let tip = match state_service
@@ -153,7 +159,7 @@ where
     tracing::info!(?tip, ?max_checkpoint_height, "initializing chain verifier");
 
     let block = BlockVerifier::new(network, state_service.clone());
-    let checkpoint = CheckpointVerifier::from_checkpoint_list(list, tip, state_service);
+    let checkpoint = CheckpointVerifier::from_checkpoint_list(list, network, tip, state_service);
 
     Buffer::new(
         BoxService::new(ChainVerifier {

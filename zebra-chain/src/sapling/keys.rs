@@ -686,7 +686,7 @@ impl From<SpendingKey> for Diversifier {
     /// Derives a [_default diversifier_][4.2.2] from a SpendingKey.
     ///
     /// 'For each spending key, there is also a default diversified
-    /// payment address with a “random-looking” diversifier. This
+    /// payment address with a "random-looking" diversifier. This
     /// allows an implementation that does not expose diversified
     /// addresses as a user-visible feature, to use a default address
     /// that cannot be distinguished (without knowledge of the
@@ -815,8 +815,8 @@ mod fvk_hrp {
 /// spend authority.
 ///
 /// For incoming viewing keys on the production network, the
-/// Human-Readable Part is “zviews”. For incoming viewing keys on the
-/// test network, the Human-Readable Part is “zviewtestsapling”.
+/// Human-Readable Part is "zviews". For incoming viewing keys on the
+/// test network, the Human-Readable Part is "zviewtestsapling".
 ///
 /// https://zips.z.cash/protocol/protocol.pdf#saplingfullviewingkeyencoding
 #[derive(Copy, Clone, Eq, PartialEq)]
@@ -904,6 +904,12 @@ impl fmt::Debug for EphemeralPublicKey {
 }
 
 impl Eq for EphemeralPublicKey {}
+
+impl From<EphemeralPublicKey> for [u8; 32] {
+    fn from(nk: EphemeralPublicKey) -> [u8; 32] {
+        nk.0.to_bytes()
+    }
+}
 
 impl From<&EphemeralPublicKey> for [u8; 32] {
     fn from(nk: &EphemeralPublicKey) -> [u8; 32] {

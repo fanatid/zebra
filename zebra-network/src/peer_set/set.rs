@@ -5,6 +5,7 @@ use std::{
     future::Future,
     marker::PhantomData,
     pin::Pin,
+    sync::{Arc, Mutex},
     task::{Context, Poll},
     time::Instant,
 };
@@ -29,7 +30,7 @@ use crate::{
         external::InventoryHash,
         internal::{Request, Response},
     },
-    BoxError,
+    AddressBook, BoxError,
 };
 
 use super::{
@@ -102,6 +103,10 @@ where
     inventory_registry: InventoryRegistry,
     /// The last time we logged a message about the peer set size
     last_peer_log: Option<Instant>,
+    /// A shared list of peer addresses.
+    ///
+    /// Used for logging diagnostics.
+    address_book: Arc<Mutex<AddressBook>>,
 }
 
 impl<D> PeerSet<D>
@@ -119,6 +124,7 @@ where
         demand_signal: mpsc::Sender<()>,
         handle_rx: tokio::sync::oneshot::Receiver<Vec<JoinHandle<Result<(), BoxError>>>>,
         inv_stream: broadcast::Receiver<(InventoryHash, SocketAddr)>,
+        address_book: Arc<Mutex<AddressBook>>,
     ) -> Self {
         Self {
             discover,
@@ -131,6 +137,7 @@ where
             handle_rx,
             inventory_registry: InventoryRegistry::new(inv_stream),
             last_peer_log: None,
+            address_book,
         }
     }
 
@@ -372,10 +379,16 @@ where
         }
 
         self.last_peer_log = Some(Instant::now());
+        // Only log address metrics in exceptional circumstances, to avoid lock contention.
+        // TODO: replace with a watch channel that is updated in `AddressBook::update_metrics()`.
+        let address_metrics = self.address_book.lock().unwrap().address_metrics();
         if unready_services_len == 0 {
-            warn!("network request with no peer connections. Hint: check your network connection");
+            warn!(
+                ?address_metrics,
+                "network request with no peer connections. Hint: check your network connection"
+            );
         } else {
-            info!("network request with no ready peers: finding more peers, waiting for {} peers to answer requests",
+            info!(?address_metrics, "network request with no ready peers: finding more peers, waiting for {} peers to answer requests",
                   unready_services_len);
         }
     }
@@ -386,7 +399,7 @@ where
         let num_peers = num_ready + num_unready;
         metrics::gauge!("pool.num_ready", num_ready as f64);
         metrics::gauge!("pool.num_unready", num_unready as f64);
-        metrics::gauge!("pool.num_peers", num_peers as f64);
+        metrics::gauge!("zcash.net.peers", num_peers as f64);
     }
 }
 
@@ -451,6 +464,25 @@ where
             if self.preselected_p2c_index.is_none() {
                 trace!("no ready services, sending demand signal");
                 let _ = self.demand_signal.try_send(());
+                // CORRECTNESS
+                //
+                // The current task must be scheduled for wakeup every time we
+                // return `Poll::Pending`.
+                //
+                // As long as there are unready or new peers, this task will run,
+                // because:
+                // - `poll_discover` schedules this task for wakeup when new
+                //   peers arrive.
+                // - if there are unready peers, `poll_unready` schedules this
+                //   task for wakeup when peer services become ready.
+                // - if the preselected peer is not ready, `service.poll_ready`
+                //   schedules this task for wakeup when that service becomes
+                //   ready.
+                //
+                // To avoid peers blocking on a full background error channel:
+                // - if no background tasks have exited since the last poll,
+                //   `poll_background_errors` schedules this task for wakeup when
+                //   the next task exits.
                 return Poll::Pending;
             }
         }

@@ -27,7 +27,7 @@ use crate::{
         internal::{Request, Response},
     },
     types::MetaAddr,
-    BoxError, Config, PeerAddrState,
+    BoxError, Config,
 };
 
 use super::{Client, Connection, ErrorSlot, HandshakeError, PeerError};
@@ -363,8 +363,12 @@ where
 
             let peer_tx = peer_tx.with(move |msg: Message| {
                 // Add a metric for outbound messages.
-                // XXX add a dimension tagging message metrics by type
-                metrics::counter!("peer.outbound_messages", 1, "addr" => addr.to_string());
+                metrics::counter!(
+                    "zcash.net.out.messages",
+                    1,
+                    "command" => msg.to_string(),
+                    "addr" => addr.to_string(),
+                );
                 // We need to use future::ready rather than an async block here,
                 // because we need the sink to be Unpin, and the With<Fut, ...>
                 // returned by .with is Unpin only if Fut is Unpin, and the
@@ -377,21 +381,16 @@ where
                     // Add a metric for inbound messages and fire a timestamp event.
                     let mut timestamp_collector = timestamp_collector.clone();
                     async move {
-                        if msg.is_ok() {
-                            // XXX add a dimension tagging message metrics by type
+                        if let Ok(msg) = &msg {
                             metrics::counter!(
-                                "inbound_messages",
+                                "zcash.net.in.messages",
                                 1,
+                                "command" => msg.to_string(),
                                 "addr" => addr.to_string(),
                             );
                             use futures::sink::SinkExt;
                             let _ = timestamp_collector
-                                .send(MetaAddr {
-                                    addr,
-                                    services: remote_services,
-                                    last_seen: Utc::now(),
-                                    last_connection_state: PeerAddrState::Responded,
-                                })
+                                .send(MetaAddr::new_responded(&addr, &remote_services))
                                 .await;
                         }
                         msg
@@ -410,6 +409,10 @@ where
                             // transactions.)
                             //
                             // https://zebra.zfnd.org/dev/rfcs/0003-inventory-tracking.html#inventory-monitoring
+                            //
+                            // TODO: zcashd has a bug where it merges queued inv messages of
+                            // the same or different types. So Zebra should split small
+                            // merged inv messages into separate inv messages. (#1799)
                             match hashes.as_slice() {
                                 [hash @ InventoryHash::Block(_)] => {
                                     let _ = inv_collector.send((*hash, addr));

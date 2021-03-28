@@ -28,7 +28,7 @@ const MERKLE_DEPTH: usize = 32;
 ///
 /// Used to hash incremental Merkle tree hash values for Sapling.
 ///
-/// MerkleCRH^Sapling(layer, left, right) := PedersenHash(“Zcash_PH”, l || left || right)
+/// MerkleCRH^Sapling(layer, left, right) := PedersenHash("Zcash_PH", l || left || right)
 /// where l = I2LEBSP_6(MerkleDepth^Sapling − 1 − layer) and
 /// left, right, and the output are all technically 255 bits (l_MerkleSapling), not 256.
 ///
@@ -62,7 +62,7 @@ lazy_static! {
     };
 }
 
-/// The index of a note’s commitment at the leafmost layer of its Note
+/// The index of a note's commitment at the leafmost layer of its Note
 /// Commitment Tree.
 ///
 /// https://zips.z.cash/protocol/protocol.pdf#merkletree
@@ -81,6 +81,18 @@ pub struct Root(pub [u8; 32]);
 impl fmt::Debug for Root {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.debug_tuple("Root").field(&hex::encode(&self.0)).finish()
+    }
+}
+
+impl From<[u8; 32]> for Root {
+    fn from(bytes: [u8; 32]) -> Root {
+        Self(bytes)
+    }
+}
+
+impl From<Root> for [u8; 32] {
+    fn from(root: Root) -> Self {
+        root.0
     }
 }
 
